@@ -137,11 +137,12 @@ def install_backend_deps():
     print_status(f"Using Python: {python_exe}")
     
     try:
-        # Use absolute paths
-        requirements_path = os.path.abspath("requirements.txt")
+        # Use absolute paths, pointing to the backend requirements file
+        requirements_path = os.path.abspath(os.path.join(BACKEND_DIR, "requirements.txt"))
         subprocess.run(
             [python_exe, "-m", "pip", "install", "-r", requirements_path],
-            check=True
+            check=True,
+            cwd=os.path.abspath(BACKEND_DIR) # Ensure pip runs in the backend directory context if needed
         )
         print_success("Backend dependencies installed.")
     except subprocess.CalledProcessError as e:
@@ -256,15 +257,19 @@ def main():
     
     first_run = is_first_run()
     
-    # Complete setup if first run
+    # Setup venv if first run
     if first_run:
-        print_status("First time setup detected. Running complete setup...")
+        print_status("First time setup detected. Running initial environment setup...")
         setup_venv()
-        install_backend_deps()
-        run_migrations()
+        # Frontend deps only need install on first run or if node_modules missing
         install_frontend_deps()
     else:
-        print_status("Previous setup detected. Skipping installation steps.")
+        print_status("Existing setup detected.")
+
+    # Always ensure backend dependencies and migrations are up-to-date
+    print_status("Ensuring backend environment is up-to-date...")
+    install_backend_deps()
+    run_migrations()
     
     # Start servers
     start_backend()
