@@ -37,7 +37,7 @@ class OrderAdmin(admin.ModelAdmin):
     list_display = ['reference', 'get_customer_name', 'amount_in_dkk', 'status', 'payment_method', 'payment_status', 'shipping_method', 'created_at']
     list_filter = ['status', 'payment_method', 'shipping_method', 'created_at', 'completed_at']
     search_fields = ['reference', 'customer__first_name', 'customer__last_name', 'customer__email']
-    readonly_fields = ['reference', 'callback_token', 'created_at', 'updated_at', 'completed_at', 'payment_actions']
+    readonly_fields = ['reference', 'callback_token', 'created_at', 'updated_at', 'completed_at', 'payment_actions', 'customer_shipping_info']
     date_hierarchy = 'created_at'
     inlines = [OrderItemInline, PaymentLogInline]
     actions = ['capture_payment_action', 'cancel_payment_action', 'refund_payment_action']
@@ -51,7 +51,7 @@ class OrderAdmin(admin.ModelAdmin):
             'classes': ['collapse in']
         }),
         ('Shipping Information', {
-            'fields': ['shipping_method', 'shipping_cost', 'pickup_point_id'],
+            'fields': ['shipping_method', 'shipping_cost', 'pickup_point_id', 'customer_shipping_info'],
             'classes': ['collapse in']
         }),
         ('Technical Details', {
@@ -299,6 +299,27 @@ class OrderAdmin(admin.ModelAdmin):
             return format_html('&nbsp;'.join(actions))
         return "No actions available"
     payment_actions.short_description = "Payment Actions"
+    
+    def customer_shipping_info(self, obj):
+        """Display customer's shipping address information"""
+        if obj.customer:
+            return format_html(
+                '<strong>Name:</strong> {} {}<br/>'
+                '<strong>Address:</strong> {}<br/>'
+                '<strong>Postal code:</strong> {}<br/>'
+                '<strong>City:</strong> {}<br/>'
+                '<strong>Email:</strong> {}<br/>'
+                '<strong>Phone:</strong> {}',
+                obj.customer.first_name,
+                obj.customer.last_name,
+                obj.customer.address,
+                obj.customer.postal_code,
+                obj.customer.city,
+                obj.customer.email,
+                obj.customer.phone
+            )
+        return "No customer information available"
+    customer_shipping_info.short_description = "Customer Address"
     
     def capture_payment_action(self, request, queryset):
         """Admin action to capture payments for selected orders"""

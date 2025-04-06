@@ -1,9 +1,11 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Image from 'next/image';
 import { Playfair_Display, Lato } from 'next/font/google';
 import { useForm } from 'react-hook-form';
+import { useCart } from '@/context/CartContext';
+import { useRouter } from 'next/navigation';
 
 // Initialize fonts
 const playfair = Playfair_Display({
@@ -18,51 +20,124 @@ const lato = Lato({
   variable: '--font-lato',
 });
 
-// Mock order data (this would come from your previous page or context)
-const mockOrderData = {
-  items: [
-    {
-      id: 1,
-      name: "MemoryBear",
-      fabricType: "2 types of fabric",
-      fabricDetails: {
-        body: "Blue flannel shirt",
-        head: "White cotton blouse",
-        underArms: "",
-        belly: ""
-      },
-      hasVest: true,
-      vestFabric: "Red checkered fabric",
-      faceStyle: "Classic smile",
-      price: 599,
-      image: "/images/fernanda-greppe-sxXxhuLdnuo-unsplash.jpg"
-    }
-  ],
-  vestPrice: 250,
-  subtotal: 849,
-  vat: 212.25, // 25% VAT
-  shipping: 49,
-  total: 898
-};
-
 export default function CheckoutPage() {
+  const router = useRouter();
+  const { cartItems, getCartTotal } = useCart();
+
   const [checkoutStep, setCheckoutStep] = useState(1);
   const [shippingMethod, setShippingMethod] = useState('home');
   const [paymentMethod, setPaymentMethod] = useState('mobilepay');
   const [marketingConsent, setMarketingConsent] = useState(false);
-  
-  const { register, handleSubmit, formState: { errors } } = useForm();
-  
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const { register, handleSubmit, watch, formState: { errors } } = useForm();
+  const formData = watch();
+
+  const [calculatedTotals, setCalculatedTotals] = useState({ subtotal: 0, vat: 0, shipping: 0, total: 0 });
+
+  useEffect(() => {
+    const subtotal = getCartTotal();
+    const shippingCost = shippingMethod === 'home' ? 49 : 39;
+    const vat = subtotal * 0.25;
+    const total = subtotal + shippingCost;
+
+    setCalculatedTotals({
+      subtotal: subtotal,
+      vat: parseFloat(vat.toFixed(2)),
+      shipping: shippingCost,
+      total: total
+    });
+  }, [cartItems, shippingMethod, getCartTotal]);
+
+  const handlePayment = async (customerData: Record<string, any>) => {
+    setIsProcessing(true);
+    setError(null);
+    
+    try {
+      // Format customer data
+      const customer = {
+        firstName: customerData.firstName || "",
+        lastName: customerData.lastName || "",
+        email: customerData.email || "",
+        phone: customerData.phone || "",
+        address: customerData.address || "",
+        postalCode: customerData.zipCode || "",
+        city: customerData.city || "",
+        country: customerData.country || "Denmark",
+        marketingConsent: customerData.marketingConsent || false
+      };
+
+      // Format items data with customization properties
+      const items = cartItems.map(item => ({
+        name: item.name,
+        price: Math.round(item.price * 100), // Convert to øre
+        quantity: item.quantity,
+        description: item.name,
+        // Add customization properties using the backend's expected field names
+        fabricType: item.customization?.fabricOption || null,
+        bodyFabric: item.customization?.bodyFabric || null,
+        headFabric: item.customization?.headFabric || null,
+        underArmsFabric: item.customization?.underArmsFabric || null,
+        bellyFabric: item.customization?.bellyFabric || null,
+        hasVest: item.customization?.hasVest === 'Yes',
+        vestFabric: item.customization?.vestFabric || null,
+        faceStyle: item.customization?.faceOption || null
+      }));
+
+      // Prepare data for the API endpoint
+      const paymentData = {
+        amount: Math.round(calculatedTotals.total * 100), // Total in øre
+        currency: "DKK",
+        description: "Purchase from MemoryBear",
+        customer: customer,
+        items: items,
+        shippingMethod: shippingMethod,
+        shippingCost: shippingMethod === 'home' ? 4900 : 3900, // Cost in øre
+        returnUrl: `${window.location.origin}/checkout/complete`
+      };
+
+      // Call our API endpoint to initiate payment
+      const response = await fetch('/api/checkout/initiate-payment', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(paymentData),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Payment initiation failed');
+      }
+
+      const result = await response.json();
+
+      // If there's a redirect URL for MobilePay, redirect the user
+      if (result.redirectUrl) {
+        window.location.href = result.redirectUrl;
+      } else {
+        throw new Error('No redirect URL received from payment provider');
+      }
+
+    } catch (err: any) {
+      setError(err.message || 'An unexpected error occurred during payment.');
+      setIsProcessing(false);
+    }
+  };
+
   const handleStepSubmit = (data: Record<string, any>) => {
-    console.log("Form data:", data);
-    // Move to next step
     if (checkoutStep < 4) {
       setCheckoutStep(checkoutStep + 1);
       window.scrollTo(0, 0);
     } else {
-      // Submit order
-      console.log("Order submitted!");
-      // Here you would typically call your API to process the order
+      // Final step - initiate payment
+      if (paymentMethod === 'mobilepay') {
+        handlePayment(data); // Pass collected form data to payment handler
+      } else {
+        // Handle other payment methods if needed
+        setError('Selected payment method not implemented yet.');
+      }
     }
   };
   
@@ -74,7 +149,19 @@ export default function CheckoutPage() {
   };
   
   return (
-    <main className={`${playfair.variable} ${lato.variable} font-sans min-h-screen bg-neutral-50 py-12`}>
+    <main className={`${playfair.variable} ${lato.variable} font-sans min-h-screen bg-neutral-50 py-12 relative`}>
+      {isProcessing && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 shadow-xl max-w-md text-center">
+            <svg className="animate-spin h-10 w-10 text-rose-600 mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <h3 className="text-lg font-serif font-medium mb-2">Behandler din betaling</h3>
+            <p className="text-gray-600">Vent venligst mens vi behandler din ordre...</p>
+          </div>
+        </div>
+      )}
       <div className="container mx-auto px-4 md:px-6">
         <h1 className="text-3xl md:text-4xl font-serif font-medium text-gray-800 mb-8 text-center">Checkout</h1>
         
@@ -125,64 +212,39 @@ export default function CheckoutPage() {
                   <div>
                     <h2 className="text-2xl font-serif text-gray-800 mb-6">Gennemse din ordre</h2>
                     
-                    {mockOrderData.items.map((item) => (
-                      <div key={item.id} className="flex flex-col md:flex-row gap-4 mb-6 pb-6 border-b border-gray-200">
-                        <div className="w-full md:w-1/4 aspect-square relative rounded-md overflow-hidden">
-                          <Image
-                            src={item.image}
-                            alt={item.name}
-                            fill
-                            style={{ objectFit: 'cover' }}
-                          />
-                        </div>
-                        <div className="flex-grow">
-                          <div className="flex justify-between">
-                            <h3 className="text-lg font-serif text-gray-800">{item.name}</h3>
-                            <span className="font-medium text-gray-800">{item.price} DKK</span>
+                    {cartItems.length === 0 ? (
+                       <p className="text-gray-600">Your cart is empty.</p>
+                    ) : (
+                      cartItems.map((item) => (
+                        <div key={item.id} className="flex flex-col md:flex-row gap-4 mb-6 pb-6 border-b border-gray-200">
+                          {/* Optional: Add image placeholder if needed */}
+                          {/* <div className="w-full md:w-1/4 aspect-square relative rounded-md overflow-hidden bg-gray-100"> */}
+                          {/*   <span className="text-gray-400">No Image</span> */}
+                          {/* </div> */}
+                          <div className="flex-grow">
+                            <div className="flex justify-between">
+                              <h3 className="text-lg font-serif text-gray-800">{item.name}</h3>
+                              <span className="font-medium text-gray-800">{item.price} DKK</span>
+                            </div>
+                            <p className="text-gray-600 text-sm mt-1">Quantity: {item.quantity}</p>
+                            
+                            {item.customization && (
+                                <div className="mt-4 space-y-2 text-sm">
+                                    <h4 className="font-medium text-gray-700">Customization:</h4>
+                                    {Object.entries(item.customization).map(([key, value]) => (
+                                        value && value !== 'N/A' && (
+                                            <div key={key} className="flex">
+                                                <span className="font-medium w-1/3 text-gray-600 capitalize">{key.replace(/([A-Z])/g, ' $1')}:</span>
+                                                <span className="text-gray-600">{value}</span>
+                                            </div>
+                                        )
+                                    ))}
+                                </div>
+                            )}
                           </div>
-                          <p className="text-gray-600 text-sm mt-1">{item.fabricType}</p>
-                          
-                          <div className="mt-4 space-y-2">
-                            <div className="flex">
-                              <span className="font-medium w-1/3 text-gray-700">Krop:</span>
-                              <span className="text-gray-600">{item.fabricDetails.body}</span>
-                            </div>
-                            <div className="flex">
-                              <span className="font-medium w-1/3 text-gray-700">Hoved:</span>
-                              <span className="text-gray-600">{item.fabricDetails.head}</span>
-                            </div>
-                            {item.fabricDetails.underArms && (
-                              <div className="flex">
-                                <span className="font-medium w-1/3 text-gray-700">Underarme:</span>
-                                <span className="text-gray-600">{item.fabricDetails.underArms}</span>
-                              </div>
-                            )}
-                            {item.fabricDetails.belly && (
-                              <div className="flex">
-                                <span className="font-medium w-1/3 text-gray-700">Maven:</span>
-                                <span className="text-gray-600">{item.fabricDetails.belly}</span>
-                              </div>
-                            )}
-                            {item.hasVest && (
-                              <div className="flex">
-                                <span className="font-medium w-1/3 text-gray-700">Vest:</span>
-                                <span className="text-gray-600">{item.vestFabric}</span>
-                              </div>
-                            )}
-                            <div className="flex">
-                              <span className="font-medium w-1/3 text-gray-700">Ansigt:</span>
-                              <span className="text-gray-600">{item.faceStyle}</span>
-                            </div>
-                          </div>
-                          
-                          {item.hasVest && (
-                            <div className="mt-3 text-sm text-gray-500">
-                              + Vest tilvalg: 250 DKK
-                            </div>
-                          )}
                         </div>
-                      </div>
-                    ))}
+                      ))
+                    )}
                     
                     <div className="mt-6 text-sm space-y-4">
                       <div className="bg-rose-50 p-4 rounded-md border border-rose-100">
@@ -204,11 +266,11 @@ export default function CheckoutPage() {
                         <div className="space-y-2">
                           <div className="flex justify-between text-sm">
                             <span className="text-gray-600">Subtotal:</span>
-                            <span className="font-medium">{mockOrderData.subtotal} DKK</span>
+                            <span className="font-medium">{calculatedTotals.subtotal} DKK</span>
                           </div>
                           <div className="flex justify-between text-sm">
                             <span className="text-gray-600">Moms (25%):</span>
-                            <span className="font-medium">{mockOrderData.vat} DKK</span>
+                            <span className="font-medium">{calculatedTotals.vat} DKK</span>
                           </div>
                           <div className="flex justify-between text-sm">
                             <span className="text-gray-600">Levering:</span>
@@ -216,7 +278,7 @@ export default function CheckoutPage() {
                           </div>
                           <div className="flex justify-between font-medium mt-2 pt-2 border-t border-gray-200">
                             <span>Total:</span>
-                            <span className="text-lg">{mockOrderData.total + (shippingMethod === 'home' ? 0 : -10)} DKK</span>
+                            <span className="text-lg">{calculatedTotals.total + (shippingMethod === 'home' ? 0 : -10)} DKK</span>
                           </div>
                         </div>
                       </div>
@@ -240,9 +302,20 @@ export default function CheckoutPage() {
                   
                   <button 
                     type="submit" 
-                    className="px-6 py-2 bg-rose-600 text-white rounded-md hover:bg-rose-700"
+                    className={`px-6 py-2 bg-rose-600 text-white rounded-md hover:bg-rose-700 flex items-center justify-center ${isProcessing ? 'opacity-75 cursor-not-allowed' : ''}`}
+                    disabled={isProcessing}
                   >
-                    {checkoutStep < 4 ? 'Fortsæt' : 'Gennemfør betaling'}
+                    {isProcessing && checkoutStep === 4 ? (
+                      <>
+                        <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Behandler...
+                      </>
+                    ) : (
+                      checkoutStep < 4 ? 'Fortsæt' : 'Gennemfør betaling'
+                    )}
                   </button>
                 </div>
                 
@@ -259,10 +332,8 @@ export default function CheckoutPage() {
                             id="firstName"
                             type="text"
                             className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-rose-300"
-                                  {...register("expiryDate", { required: paymentMethod === 'card' })}
-                                />
-                                {errors.expiryDate && <p className="text-red-600 text-sm mt-1">{String(errors.expiryDate.message)}</p>}
-                          /{'>'}
+                            {...register("firstName", { required: "Fornavn er påkrævet" })}
+                          />
                           {errors.firstName && <p className="text-red-600 text-sm mt-1">{String(errors.firstName.message)}</p>}
                         </div>
                         <div>
@@ -324,12 +395,12 @@ export default function CheckoutPage() {
                       
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div className="md:col-span-1">
-                          <label htmlFor="postalCode" className="block text-gray-700 mb-1">Postnummer *</label>
+                          <label htmlFor="zipCode" className="block text-gray-700 mb-1">Postnummer *</label>
                           <input
-                            id="postalCode"
+                            id="zipCode"
                             type="text"
                             className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-rose-300"
-                            {...register("postalCode", { 
+                            {...register("zipCode", {
                               required: "Postnummer er påkrævet",
                               pattern: {
                                 value: /^[0-9]{4}$/,
@@ -337,7 +408,7 @@ export default function CheckoutPage() {
                               }
                             })}
                           />
-                          {errors.postalCode && <p className="text-red-600 text-sm mt-1">{String(errors.postalCode.message)}</p>}
+                          {errors.zipCode && <p className="text-red-600 text-sm mt-1">{String(errors.zipCode.message)}</p>}
                         </div>
                         <div className="md:col-span-2">
                           <label htmlFor="city" className="block text-gray-700 mb-1">By *</label>
@@ -366,7 +437,7 @@ export default function CheckoutPage() {
                           <input
                             type="checkbox"
                             className="mt-1"
-                            onChange={(e) => setMarketingConsent(e.target.checked)}
+                            {...register("marketingConsent")}
                           />
                           <span className="ml-2 text-sm text-gray-600">
                             Ja tak, jeg vil gerne modtage nyhedsbreve og tilbud fra MemoryBear. Læs vores <a href="/privacy" className="text-rose-600 underline">persondatapolitik</a>.
@@ -566,34 +637,12 @@ export default function CheckoutPage() {
                       <div className="bg-rose-50 p-4 rounded-md border border-rose-100">
                         <h3 className="font-serif text-lg text-gray-800 mb-2">Ordreoversigt</h3>    
                         <div className="space-y-2">
-                          {mockOrderData.items.map((item) => (
-                            <div key={item.id} className="flex justify-between">
-                              <span className="text-gray-600">{item.name}</span>
-                              <span className="text-gray-600">{item.price}DKK</span>
+                          {cartItems.map((item) => (
+                            <div key={item.id} className="flex justify-between text-sm">
+                              <span className="text-gray-600 truncate pr-2" title={item.name}>{item.name} (x{item.quantity})</span>
+                              <span className="text-gray-600 flex-shrink-0">{item.price * item.quantity} DKK</span>
                             </div>
                           ))}
-                          {mockOrderData.vestPrice > 0 && (
-                            <div className="flex justify-between">
-                              <span className="text-gray-600">Vest</span>
-                              <span className="text-gray-600">{mockOrderData.vestPrice}DKK</span>
-                            </div>
-                          )}
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Subtotal</span>
-                            <span className="text-gray-600">{mockOrderData.subtotal}DKK</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Moms</span>
-                            <span className="text-gray-600">{mockOrderData.vat}DKK</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Forsendelse</span>
-                            <span className="text-gray-600">{mockOrderData.shipping}DKK</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Total</span>
-                            <span className="text-gray-600">{mockOrderData.total}DKK</span>
-                          </div>
                         </div>
                       </div>
                     </div>
@@ -602,8 +651,49 @@ export default function CheckoutPage() {
               </form>
             </div>
           </div>
-        </div>
-      </div>
+
+          {/* Right Column - Order Summary (Corrected) */}
+          <div className="md:col-span-1">
+            <div className="bg-white rounded-lg shadow-md p-6 sticky top-20">
+              <h3 className="font-serif text-lg text-gray-800 mb-4">Ordreoversigt</h3>
+              {/* Items Loop */}
+              <div className="space-y-2 border-b border-gray-200 pb-4 mb-4">
+                {cartItems.length === 0 ? (
+                  <p className="text-sm text-gray-500">Din indkøbskurv er tom.</p>
+                ) : (
+                  cartItems.map((item) => (
+                    <div key={item.id} className="flex justify-between text-sm">
+                      <span className="text-gray-600 truncate pr-2" title={item.name}>{item.name} (x{item.quantity})</span>
+                      <span className="text-gray-600 flex-shrink-0">{item.price * item.quantity} DKK</span>
+                    </div>
+                  ))
+                )}
+              </div>
+              {/* Totals */}
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Subtotal</span>
+                  <span className="text-gray-600">{calculatedTotals.subtotal} DKK</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Moms (25%)</span>
+                  <span className="text-gray-600">{calculatedTotals.vat} DKK</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Levering</span>
+                  <span className="text-gray-600">{calculatedTotals.shipping} DKK</span>
+                </div>
+                <div className="flex justify-between text-lg font-medium mt-2 pt-2 border-t border-gray-200">
+                  <span>Total</span>
+                  <span>{calculatedTotals.total} DKK</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          {/* End of Right Column */}
+
+        </div> {/* End of Main Grid */}
+      </div> {/* End of Container */}
     </main>
   );
 }

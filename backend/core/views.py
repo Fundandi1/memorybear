@@ -697,7 +697,7 @@ def create_checkout(request):
         
         # Determine the callback URL and return URL
         callback_url = request.build_absolute_uri('/api/checkout/callback/')
-        return_url = data.get('return_url', request.build_absolute_uri('/checkout/complete/'))
+        return_url = data.get('returnUrl', request.build_absolute_uri('/checkout/complete/'))
         
         # Create checkout session with Vipps/MobilePay
         try:
@@ -1094,13 +1094,13 @@ def create_mobilepay_checkout(request):
                 customer, created = Customer.objects.update_or_create(
                     email=customer_data.get('email'),
                     defaults={
-                        'first_name': customer_data.get('first_name', ''), # Use snake_case
-                        'last_name': customer_data.get('last_name', ''),   # Use snake_case
+                        'first_name': customer_data.get('firstName', ''), # Use camelCase to match frontend
+                        'last_name': customer_data.get('lastName', ''),   # Use camelCase to match frontend
                         'phone': customer_data.get('phone', ''),
                         'address': customer_data.get('address', ''),
-                        'postal_code': customer_data.get('postal_code', ''), # Use snake_case
+                        'postal_code': customer_data.get('postalCode', ''), # Use camelCase to match frontend
                         'city': customer_data.get('city', ''),
-                        'marketing_consent': customer_data.get('marketing_consent', False), # Use snake_case
+                        'marketing_consent': customer_data.get('marketingConsent', False), # Use camelCase to match frontend
                     }
                 )
         
@@ -1110,8 +1110,8 @@ def create_mobilepay_checkout(request):
             amount=data['amount'],
             currency=data.get('currency', 'DKK'),
             status='CREATED',
-            shipping_method=data.get('shipping_method', 'home'), # Use snake_case
-            shipping_cost=data.get('shipping_cost', 4900), # Use snake_case
+            shipping_method=data.get('shippingMethod', 'home'), # Use camelCase to match frontend
+            shipping_cost=data.get('shippingCost', 4900), # Use camelCase to match frontend
             payment_method='mobilepay', # Keep as 'mobilepay' internally
             comments=data.get('comments', ''),
             pickup_point_id=data.get('pickupPointId'), # Keep camelCase if frontend sends this
@@ -1146,7 +1146,7 @@ def create_mobilepay_checkout(request):
         try:
             # Use the ePayment method which should handle MobilePay
             # Append the reference to the return URL so we can use it for auto-capture
-            return_url = data.get('return_url')
+            return_url = data.get('returnUrl')
             if return_url:
                 if "?" in return_url:
                     return_url += f"&reference={reference}"

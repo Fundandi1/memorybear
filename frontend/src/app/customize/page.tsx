@@ -5,6 +5,7 @@ import Image from 'next/image';
 import { Playfair_Display, Lato } from 'next/font/google';
 import { useRouter } from 'next/navigation';
 import Navbar from '../../../components/navbar';
+import { useCart } from '@/context/CartContext'; // Import useCart hook
 
 // Initialize fonts
 const playfair = Playfair_Display({
@@ -21,6 +22,7 @@ const lato = Lato({
 
 export default function ProductCustomizePage() {
   const router = useRouter();
+  const { clearCart, addToCart } = useCart(); // Use the cart context hook
   const [selectedFabric, setSelectedFabric] = useState(0);
   const [selectedVest, setSelectedVest] = useState(false);
   const [selectedFace, setSelectedFace] = useState(0);
@@ -54,75 +56,40 @@ export default function ProductCustomizePage() {
       return;
     }
     
-    // Calculate prices in øre (cents) for backend compatibility
-    const basePriceInOre = basePrice * 100;
-    const vestPriceInOre = vestPrice * 100;
+    // Calculate prices in DKK for context consistency
+    const basePrice = parseInt(fabricOptions[selectedFabric].price.replace('DKK', ''));
+    const vestPrice = selectedVest ? 250 : 0;
+    const totalPriceDKK = basePrice + vestPrice;
     
-    // Create the cart items
-    const cartItems = [
-      {
-        name: `Memory Bear - ${fabricOptions[selectedFabric].text}`,
-        price: basePriceInOre,
-        quantity: 1,
-        description: `Memory bear with ${fabricOptions[selectedFabric].text}`,
-        fabricType: `${selectedFabric + 1} fabric`,
+    // Create the customized bear item object for the cart
+    const customizedBear = {
+      id: `custom-bear-${Date.now()}`, // Simple unique ID
+      name: `Custom Memory Bear (${fabricOptions[selectedFabric].text})`,
+      price: totalPriceDKK, // Store price in DKK in the context
+      customization: {
+        fabricOption: fabricOptions[selectedFabric].text,
+        faceOption: faceOptions[selectedFace].text,
         bodyFabric: formData.bodyAndArms,
         headFabric: formData.headAndEars || null,
         underArmsFabric: formData.underArms || null,
         bellyFabric: formData.belly || null,
-        hasVest: false,
-        vestFabric: null,
-        faceStyle: faceOptions[selectedFace].text
+        hasVest: selectedVest ? 'Yes' : 'No',
+        vestFabric: selectedVest ? formData.vestFabric : null,
       }
-    ];
-    
-    // Add vest as a separate item if selected
-    if (selectedVest) {
-      cartItems.push({
-        name: "Memory Bear Vest",
-        price: vestPriceInOre,
-        quantity: 1,
-        description: "Vest accessory for memory bear",
-        fabricType: "",
-        bodyFabric: "",
-        headFabric: "",
-        underArmsFabric: "",
-        bellyFabric: "",
-        hasVest: true,
-        vestFabric: null,  // Always set to null in the vest item
-        faceStyle: ""
-      });
-    }
-    
-    // Collect all product data
-    const productData = {
-      // Product selections
-      fabricOption: fabricOptions[selectedFabric],
-      vestSelected: selectedVest,
-      faceOption: faceOptions[selectedFace],
-      
-      // Form inputs for fabric descriptions
-      fabricDescriptions: formData,
-      
-      // Price information
-      basePrice,
-      vestPrice,
-      totalPrice,
-
-      // Create a formatted cart for checkout - prices in øre (cents)
-      cart: cartItems
     };
-    
+
     try {
-      // Save to localStorage for the checkout page to access
-      localStorage.setItem('memoryBearOrder', JSON.stringify(productData));
+      clearCart(); // Clear previous cart items
+      addToCart(customizedBear); // Add the new configuration
       
       // Navigate to checkout page
-      router.push('/checkout_mobilepay');
+      router.push('/checkout');
     } catch (err) {
-      console.error("Error saving order data:", err);
-      setError("There was a problem saving your order. Please try again.");
-      setIsSubmitting(false);
+      console.error("Error adding to cart or navigating:", err);
+      setError("There was a problem saving your customization. Please try again.");
+      // No need to setIsSubmitting(false) here unless navigation fails, 
+      // but better to let the user retry if navigation happens.
+      // Keep it true to prevent double submission during navigation
     }
   };
 
