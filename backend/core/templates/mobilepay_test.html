@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MobilePay Test - 1 kr</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .button {
+            display: inline-block;
+            background-color: #5C2D91;
+            color: white;
+            padding: 12px 24px;
+            font-size: 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            text-decoration: none;
+            margin-top: 20px;
+        }
+        .button:hover {
+            background-color: #4B2575;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            display: none;
+        }
+        .success {
+            background-color: #dff0d8;
+            border-color: #d6e9c6;
+        }
+        .error {
+            background-color: #f2dede;
+            border-color: #ebccd1;
+        }
+        .payment-details {
+            margin-top: 20px;
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            border: 1px solid #e9ecef;
+        }
+        .payment-status {
+            font-weight: bold;
+        }
+        .payment-status.captured {
+            color: #28a745;
+        }
+        .payment-status.authorized {
+            color: #ffc107;
+        }
+    </style>
+</head>
+<body>
+    <h1>MobilePay Test - 1 kr betaling</h1>
+    
+    <p>Dette er en testside til at afprøve MobilePay integration med et beløb på 1 kr.</p>
+    
+    <button id="payButton" class="button">Betal 1 kr med MobilePay</button>
+    
+    <div id="loading" style="display: none; margin-top: 20px;">
+        <p>Behandler betaling...</p>
+    </div>
+    
+    <div id="result" class="result"></div>
+    
+    <div id="paymentDetails" class="payment-details" style="display: none;">
+        <h3>Betalingsdetaljer</h3>
+        <div id="paymentDetailsContent"></div>
+        <button id="checkStatusButton" class="button" style="margin-top: 15px;">Tjek betalingsstatus</button>
+    </div>
+    
+    <script>
+        // Store the payment reference globally
+        let currentPaymentReference = '';
+        
+        document.getElementById('payButton').addEventListener('click', async () => {
+            const loadingElement = document.getElementById('loading');
+            const resultElement = document.getElementById('result');
+            
+            try {
+                loadingElement.style.display = 'block';
+                resultElement.style.display = 'none';
+                document.getElementById('paymentDetails').style.display = 'none';
+                
+                // Create a test payment request
+                const paymentData = {
+                    amount: 100, // 1 kr in øre
+                    currency: 'DKK',
+                    description: 'Test betaling på 1 kr',
+                    // Path to the completion page without reference (will be added later)
+                    return_url: window.location.href.split('?')[0].replace('/mobilepay/test/', '/checkout/complete/') + '?status=success',
+                    customer: {
+                        first_name: 'Test',
+                        last_name: 'Bruger',
+                        email: 'test@example.com',
+                        phone: '4512345678'
+                    }
+                };
+                
+                // Send the request to the backend
+                const response = await fetch('/mobilepay/checkout/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(paymentData)
+                });
+                
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.error || 'Kunne ikke oprette betaling');
+                }
+                
+                // Store the payment reference
+                if (data.reference) {
+                    currentPaymentReference = data.reference;
+                    setPaymentReference(data.reference);
+                    console.log('Payment reference:', currentPaymentReference);
+                    
+                    // Update the return URL to include the reference
+                    if (data.redirectUrl) {
+                        // Add reference to redirectUrl if possible
+                        const redirectUrl = new URL(data.redirectUrl);
+                        // Modify the redirectUrl (if possible) to update the returnUrl parameter
+                        const returnUrl = paymentData.return_url + `&reference=${data.reference}`;
+                        try {
+                            // Try to find and update returnUrl parameter in the redirectUrl
+                            const urlParams = new URLSearchParams(redirectUrl.search);
+                            if (urlParams.has('returnUrl')) {
+                                urlParams.set('returnUrl', returnUrl);
+                                redirectUrl.search = urlParams.toString();
+                                data.redirectUrl = redirectUrl.toString();
+                            }
+                        } catch (e) {
+                            console.error('Could not update returnUrl in redirectUrl:', e);
+                        }
+                    }
+                }
+                
+                if (data.redirectUrl) {
+                    // Redirect to MobilePay
+                    window.location.href = data.redirectUrl;
+                } else {
+                    throw new Error('Ingen redirect URL i svaret');
+                }
+                
+            } catch (error) {
+                loadingElement.style.display = 'none';
+                resultElement.style.display = 'block';
+                resultElement.classList.add('error');
+                resultElement.innerHTML = `<p>Fejl: ${error.message}</p>`;
+                console.error('Betalingsfejl:', error);
+            }
+        });
+        
+        // Check payment status
+        document.getElementById('checkStatusButton').addEventListener('click', async () => {
+            if (!currentPaymentReference) {
+                alert('Ingen betalingsreference tilgængelig');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/epayment/status/${currentPaymentReference}/`);
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.error || 'Kunne ikke hente betalingsstatus');
+                }
+                
+                // Update the payment details section
+                const detailsContent = document.getElementById('paymentDetailsContent');
+                
+                if (data.success) {
+                    const payment = data.payment;
+                    const order = data.order;
+                    
+                    let statusClass = '';
+                    if (payment.state === 'CAPTURED') {
+                        statusClass = 'captured';
+                    } else if (payment.state === 'AUTHORIZED') {
+                        statusClass = 'authorized';
+                    }
+                    
+                    detailsContent.innerHTML = `
+                        <p><strong>Reference:</strong> ${order.reference}</p>
+                        <p><strong>Beløb:</strong> ${formatAmount(payment, order)}</p>
+                        <p><strong>Status:</strong> <span class="payment-status ${statusClass}">${payment.state}</span></p>
+                        <p><strong>Ordre status:</strong> ${order.status}</p>
+                        <p><strong>Oprettet:</strong> ${new Date(order.created_at).toLocaleString()}</p>
+                        ${order.completed_at ? `<p><strong>Gennemført:</strong> ${new Date(order.completed_at).toLocaleString()}</p>` : ''}
+                    `;
+                } else {
+                    detailsContent.innerHTML = `<p>Kunne ikke hente betalingsdetaljer: ${data.error}</p>`;
+                }
+            } catch (error) {
+                console.error('Fejl ved hentning af betalingsstatus:', error);
+                document.getElementById('paymentDetailsContent').innerHTML = `<p>Fejl: ${error.message}</p>`;
+            }
+        });
+        
+        // Check if we're returning from MobilePay with a success status
+        window.addEventListener('load', () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const status = urlParams.get('status');
+            
+            if (status === 'success') {
+                const resultElement = document.getElementById('result');
+                resultElement.style.display = 'block';
+                resultElement.classList.add('success');
+                resultElement.innerHTML = '<p>Betaling gennemført! Tak for din test.</p>';
+                
+                // Try to extract payment reference from URL or localStorage
+                const storedReference = localStorage.getItem('currentPaymentReference');
+                currentPaymentReference = urlParams.get('reference') || storedReference;
+                
+                if (currentPaymentReference) {
+                    // Show payment details section
+                    document.getElementById('paymentDetails').style.display = 'block';
+                    // Trigger automatic status check
+                    document.getElementById('checkStatusButton').click();
+                }
+            }
+        });
+        
+        // Store payment reference when it changes
+        const setPaymentReference = (reference) => {
+            if (reference) {
+                currentPaymentReference = reference;
+                localStorage.setItem('currentPaymentReference', reference);
+            }
+        };
+        
+        // Add a helper function to format the amount properly
+        function formatAmount(payment, order) {
+            // Try different paths to get the amount and currency
+            let amount, currency;
+            
+            // Check if we have summary.authorizedAmount structure
+            if (payment.summary && payment.summary.authorizedAmount) {
+                amount = payment.summary.authorizedAmount.value;
+                currency = payment.summary.authorizedAmount.currency;
+            } 
+            // Check if we have direct amount object
+            else if (payment.amount && typeof payment.amount === 'object') {
+                amount = payment.amount.value;
+                currency = payment.amount.currency;
+            }
+            // Check if amount is a direct number
+            else if (typeof payment.amount === 'number') {
+                amount = payment.amount;
+                // Try to get currency from other places
+                if (payment.currency) {
+                    currency = payment.currency;
+                }
+            }
+            
+            // If we still don't have an amount, use the order amount
+            if (amount === undefined || amount === null) {
+                amount = order.amount;
+            }
+            
+            // Default currency if none found
+            if (!currency) {
+                currency = 'DKK';
+            }
+            
+            // Format the amount - divide by 100 if over 1000 (assuming minor units)
+            const numericAmount = Number(amount);
+            const displayAmount = !isNaN(numericAmount) ? 
+                (numericAmount > 1000 ? numericAmount / 100 : numericAmount) : 
+                amount;
+                
+            return `${displayAmount} ${currency}`;
+        }
+    </script>
+</body>
+</html> 

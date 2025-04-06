@@ -12,19 +12,24 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 
 import os
 from pathlib import Path
+from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Load environment variables from .env file
+load_dotenv(os.path.join(BASE_DIR, '.env'))
 
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-)^+ojex)ssr95%vp8_ojoi(p6ipj$w*uq#9p8$@&6cg#o4pzmd'
+SECRET_KEY = os.getenv('SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# Convert DEBUG string to boolean
+DEBUG = os.getenv('DEBUG', 'False').lower() in ('true', '1', 't')
 
 ALLOWED_HOSTS = []
 
@@ -65,6 +70,7 @@ TEMPLATES = [
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
         'DIRS': [
             os.path.join(BASE_DIR, 'frontend', 'out'),  # Next.js static export
+            os.path.join(BASE_DIR, 'core', 'templates'),  # Django templates
         ],
         'APP_DIRS': True,
         'OPTIONS': {
@@ -117,9 +123,7 @@ AUTH_PASSWORD_VALIDATORS = [
 LANGUAGE_CODE = 'en-us'
 
 TIME_ZONE = 'UTC'
-
 USE_I18N = True
-
 USE_TZ = True
 
 
@@ -132,18 +136,26 @@ STATICFILES_DIRS = [
 STATIC_URL = '/_next/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
-# Vipps/MobilePay API settings
-VIPPS_CLIENT_ID = 'a25defa5-6acc-4bce-9366-84c42f339e4e'
-VIPPS_CLIENT_SECRET = '2k68Q~HgXodcBpvomssKI9dKHPFNRtboc-h4JcBx'
-VIPPS_SUBSCRIPTION_KEY = 'bc4d6dd9f37f4caf9c06323ee9d739ad'  # Primary key
-VIPPS_MERCHANT_SERIAL_NUMBER = '2071033'
-VIPPS_TEST_MODE = True  # Set to False when going to production
+# Vipps/MobilePay API settings from environment variables
+VIPPS_CLIENT_ID = os.getenv('VIPPS_CLIENT_ID')
+VIPPS_CLIENT_SECRET = os.getenv('VIPPS_CLIENT_SECRET')
+VIPPS_SUBSCRIPTION_KEY = os.getenv('VIPPS_SUBSCRIPTION_KEY')
+VIPPS_MERCHANT_SERIAL_NUMBER = os.getenv('VIPPS_MERCHANT_SERIAL_NUMBER')
+VIPPS_TEST_MODE = os.getenv('VIPPS_TEST_MODE', 'True').lower() in ('true', '1', 't')
+
+# MobilePay specific settings
+# Note: For ePayment API, we use the Vipps test environment, not MobilePay's separate endpoint
+MOBILEPAY_API_ENDPOINT = 'https://apitest.vipps.no' if VIPPS_TEST_MODE else 'https://api.vipps.no'
+MOBILEPAY_CHECKOUT_RETURN_URL = os.getenv('MOBILEPAY_CHECKOUT_RETURN_URL')
+MOBILEPAY_CHECKOUT_CALLBACK_URL = os.getenv('MOBILEPAY_CHECKOUT_CALLBACK_URL')
 
 CORS_ALLOW_ALL_ORIGINS = True  # For development only, change this in production
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3001",
 ]
 CORS_ALLOWED_METHODS = [
     'GET',
