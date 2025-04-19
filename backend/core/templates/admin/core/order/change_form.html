@@ -1,0 +1,27 @@
+{% extends "admin/change_form.html" %}
+{% load static %}
+
+{% block extrahead %}
+{{ block.super }}
+<style>
+    /* Make tables horizontally scrollable */
+    .inline-group .tabular table {
+        display: block;
+        overflow-x: auto;
+        white-space: nowrap;
+        width: 100%;
+    }
+    
+    /* Ensure table cells don't wrap */
+    .inline-group .tabular table td,
+    .inline-group .tabular table th {
+        white-space: nowrap;
+    }
+    
+    /* Add some padding to the scrollable area */
+    .inline-group .tabular {
+        padding: 0;
+        margin: 0;
+    }
+</style>
+{% endblock %} 
